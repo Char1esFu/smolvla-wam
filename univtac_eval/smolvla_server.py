@@ -1,6 +1,6 @@
 """FastAPI inference server for SmolVLA deploy-time evaluation.
 
-Run this file with ``policy/smolvla/.venv/bin/python``. The IsaacLab eval
+Run this file with the smolvla-wam venv (``smolvla_python``). The IsaacLab eval
 process talks to it over HTTP so the simulator and SmolVLA dependency stacks
 can stay in separate Python environments.
 """
@@ -26,10 +26,8 @@ def _repo_root() -> Path:
 
 def _setup_paths() -> None:
     root = _repo_root()
-    smolvla_dir = Path(__file__).resolve().parent
     os.chdir(root)
-    sys.path.insert(0, str(root))
-    sys.path.insert(0, str(smolvla_dir / "src"))
+    sys.path.insert(0, str(root))  # lerobot comes from the venv (smolvla-wam, editable)
 
 
 def create_app(authkey: str) -> FastAPI:

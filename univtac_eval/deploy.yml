@@ -48,9 +48,14 @@ smolvla_image_scale: float01
 smolvla_use_marker_variants: auto
 
 # FastAPI inference service. By default Policy starts a local subprocess with
-# policy/smolvla/.venv/bin/python on a free localhost port. Set smolvla_port
-# to connect to an already-running service instead.
-# smolvla_python: policy/smolvla/.venv/bin/python
+# smolvla_python (the venv of the smolvla-wam clone) on a free localhost port. Set
+# smolvla_port to connect to an already-running service instead.
+smolvla_python: ~/proj/smolvla-wam/.venv/bin/python
+# Checkpoints: {smolvla_outputs_root}/smolvla_vitac_{task}-{config}-{EP_NUM}_{TRAIN_CONFIG}/checkpoints/last/
+# pretrained_model (run dirs copied from $WS/smolvla/outputs on the cluster), falling back to the same run under
+# smolvla_archive_root (the earlier runs, head and wrist cameras for every task).
+smolvla_outputs_root: ~/proj/smolvla-wam/outputs
+smolvla_archive_root: ~/proj/smolvla-wam/outputs_archive
 # smolvla_host: 127.0.0.1
 smolvla_port: 0
 # smolvla_startup_timeout: 300

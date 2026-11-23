@@ -1,8 +1,8 @@
 """SmolVLA deployment policy for the UniVTAC evaluation harness.
 
 This is the deploy-time bridge between UniVTAC's :class:`BaseTask` observation
-dictionaries and the visuo-tactile SmolVLA policy living in
-``UniVTAC/policy/smolvla/src/lerobot``. The class follows the same contract
+dictionaries and the visuo-tactile SmolVLA policy of the smolvla-wam repo (its LeRobot copy, installed in the
+venv `smolvla_python`, default ~/proj/smolvla-wam/.venv). The class follows the same contract
 as :class:`policy.ACT.deploy_policy.Policy`:
 
 * ``__init__(args)``  -- load checkpoint + processors, read deploy.yml-ish args.
@@ -42,8 +42,8 @@ from typing import Any
 import numpy as np
 import yaml
 
-# Make the locally vendored lerobot importable.
-_SMOLVLA_DIR = Path(__file__).resolve().parent
+_SMOLVLA_DIR = Path(__file__).resolve().parent  # UniVTAC/policy/smolvla (the deploy files)
+_DEFAULT_ROOT = Path.home() / "proj" / "smolvla-wam"  # the smolvla-wam clone: venv and checkpoints
 sys.path.append(str(_SMOLVLA_DIR.parent))  # for the relative _base_policy import
 
 from .._base_policy import BasePolicy  # noqa: E402
@@ -142,8 +142,8 @@ def _instruction_for(instruction: str | None, task_name: str, use_env_instructio
 
 
 def _train_config_name(args: dict) -> str:
-    """scripts/train.sh writes outputs/smolvla_vitac_{task}-{config}-{num}_{RUN_TAG suffix},
-    "vitac" by default. Select another run with TRAIN_CONFIG (e.g. fp32_scratch)."""
+    """The training run suffix: scripts/train_cluster.sbatch writes outputs/smolvla_vitac_{task}-{config}-{num}_{suffix}
+    (fp32_scratch, wam, wam_tacfrozen). Select the run with TRAIN_CONFIG."""
     return args.get("train_config_name") or os.environ.get("TRAIN_CONFIG") or "vitac"
 
 
@@ -172,11 +172,19 @@ def get_run_tag(args: dict) -> str:
 
 
 def _resolve_ckpt_dir(args: dict) -> Path:
+    """
+    `ckpt_dir`, else `{smolvla_outputs_root}/smolvla_vitac_{task}-{config}-{EP_NUM}_{TRAIN_CONFIG}/checkpoints/last/
+    pretrained_model` (a run dir copied from the cluster), else the same run under `smolvla_archive_root` (the
+    earlier runs with head and wrist cameras for every task).
+    """
     if args.get("ckpt_dir"):
-        return Path(args["ckpt_dir"])
+        return Path(args["ckpt_dir"]).expanduser()
     ep_num = args.get("expert_data_num") or os.environ.get("EP_NUM") or "100"
     run = f"smolvla_vitac_{args['task_name']}-{args['task_config']}-{ep_num}_{_train_config_name(args)}"
-    return _SMOLVLA_DIR / "outputs" / run / "checkpoints" / "last" / "pretrained_model"
+    roots = [args.get("smolvla_outputs_root") or _DEFAULT_ROOT / "outputs",
+             args.get("smolvla_archive_root") or _DEFAULT_ROOT / "outputs_archive"]
+    dirs = [Path(r).expanduser() / run / "checkpoints" / "last" / "pretrained_model" for r in roots]
+    return next((d for d in dirs if d.exists()), dirs[0])
 
 
 class _SmolVLALocalPolicy(BasePolicy):
@@ -198,7 +206,6 @@ class _SmolVLALocalPolicy(BasePolicy):
     def __init__(self, args: dict):
         import torch
 
-        sys.path.insert(0, str(_SMOLVLA_DIR / "src"))
         from huggingface_hub.constants import SAFETENSORS_SINGLE_FILE
         from lerobot.configs import PreTrainedConfig
         from lerobot.processor import (
@@ -273,7 +280,10 @@ class _SmolVLALocalPolicy(BasePolicy):
         model_file = ckpt_dir / SAFETENSORS_SINGLE_FILE
         adapter_file = ckpt_dir / "adapter_model.safetensors"
         if model_file.exists():
-            self.model = SmolVLAPolicy.from_pretrained(str(ckpt_dir)).to(self.device).eval()
+            # The tactile encoder weights are in the checkpoint: do not load its pretrained file (a cluster path).
+            policy_config = PreTrainedConfig.from_pretrained(str(ckpt_dir))
+            policy_config.vitac_pretrained_path = None
+            self.model = SmolVLAPolicy.from_pretrained(str(ckpt_dir), config=policy_config).to(self.device).eval()
         elif adapter_file.exists():
             from peft import PeftConfig, PeftModel
 
@@ -679,7 +689,7 @@ class _SmolVLAFastAPIClient:
         self.repo_root = self.smolvla_dir.parents[1]
         self.host = str(args.get("smolvla_host", os.environ.get("SMOLVLA_HOST", "127.0.0.1")))
         self.port = int(args.get("smolvla_port", os.environ.get("SMOLVLA_PORT", 0)) or 0)
-        self.python = Path(args.get("smolvla_python", self.smolvla_dir / ".venv" / "bin" / "python"))
+        self.python = Path(args.get("smolvla_python") or _DEFAULT_ROOT / ".venv" / "bin" / "python").expanduser()
         self.startup_timeout = float(args.get("smolvla_startup_timeout", 300))
         self.request_timeout = float(args.get("smolvla_request_timeout", 300))
         self.authkey = str(args.get("smolvla_authkey", os.environ.get("SMOLVLA_AUTHKEY", "")))
